@@ -1,4 +1,5 @@
 @import url('https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap');
+@import url('https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.css');
 
 :root {
     --navy: #0F172A;
@@ -26,7 +27,7 @@ h1, h2, h3, .df-heading { font-family: 'Sora', sans-serif !important; color: var
                 radial-gradient(circle at 85% 0%, rgba(6,182,212,0.30), transparent 40%),
                 linear-gradient(160deg, var(--navy) 0%, var(--slate) 100%);
     border-radius: 24px;
-    padding: 56px 48px;
+    padding: 46px 48px;
     margin-bottom: 28px;
     text-align: center;
     box-shadow: 0 20px 50px rgba(15,23,42,0.25);
@@ -46,11 +47,22 @@ h1, h2, h3, .df-heading { font-family: 'Sora', sans-serif !important; color: var
     margin-bottom: 20px;
     backdrop-filter: blur(6px);
 }
+.df-brand {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    margin-bottom: 12px;
+}
+.df-logo {
+    flex-shrink: 0;
+    filter: drop-shadow(0 2px 6px rgba(0,0,0,0.25));
+}
 .df-hero h1 {
     color: #FFFFFF !important;
     font-size: 2.6rem;
     font-weight: 800 !important;
-    margin: 0 0 12px 0;
+    margin: 0;
     letter-spacing: -0.02em;
 }
 .df-hero p {
@@ -60,54 +72,174 @@ h1, h2, h3, .df-heading { font-family: 'Sora', sans-serif !important; color: var
     margin: 0 auto;
 }
 
-/* ---------------- Tabs as pill segmented control ---------------- */
-.stTabs [data-baseweb="tab-list"] {
-    gap: 6px;
+/* ---------------- Tabs: premium segmented control ---------------- */
+/* Verified against the actual rendered DOM (Streamlit 1.59.1): tabs use
+   data-testid="stTab" with role="tab"/aria-selected, wrapped in a
+   [role="tablist"] row inside [data-testid="stTabs"] — NOT the old
+   data-baseweb attributes, which don't exist in this DOM at all. */
+div[data-testid="stTabs"] [role="tablist"] {
+    display: flex;
+    gap: 10px;
     background: var(--card);
-    padding: 6px;
-    border-radius: 14px;
-    box-shadow: 0 2px 10px rgba(15,23,42,0.06);
+    padding: 10px;
+    border-radius: 20px;
+    box-shadow: 0 6px 22px rgba(15,23,42,0.10);
+    border: 1px solid rgba(15,23,42,0.05);
     width: fit-content;
-    margin: 0 auto 24px auto;
+    margin: 0 auto 32px auto;
 }
-.stTabs [data-baseweb="tab"] {
-    height: 42px;
-    border-radius: 10px;
-    padding: 0 22px;
-    font-family: 'Inter', sans-serif;
-    font-weight: 600;
+div[data-testid="stTabs"] [data-testid="stTab"] {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 58px;
+    border-radius: 14px;
+    padding: 0 42px;
+    cursor: pointer;
+    transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+div[data-testid="stTabs"] [data-testid="stTab"] p {
+    font-family: 'Inter', sans-serif !important;
+    font-weight: 600 !important;
+    font-size: 1rem !important;
+    letter-spacing: 0.01em;
     color: var(--slate-400);
+    transition: color 0.2s ease;
+    margin: 0;
 }
-.stTabs [aria-selected="true"] {
-    background: linear-gradient(135deg, var(--blue), var(--cyan)) !important;
+div[data-testid="stTabs"] [data-testid="stTab"]:hover {
+    background: rgba(15,23,42,0.05);
+    transform: translateY(-2px);
+}
+div[data-testid="stTabs"] [data-testid="stTab"]:hover p {
+    color: var(--slate);
+}
+div[data-testid="stTabs"] [data-testid="stTab"][aria-selected="true"] {
+    background: linear-gradient(135deg, var(--navy), var(--blue));
+    box-shadow: 0 8px 22px rgba(59,130,246,0.40), 0 4px 10px rgba(15,23,42,0.30);
+}
+div[data-testid="stTabs"] [data-testid="stTab"][aria-selected="true"]:hover {
+    transform: none;
+}
+div[data-testid="stTabs"] [data-testid="stTab"][aria-selected="true"] p {
     color: #FFFFFF !important;
+}
+/* react-aria renders its own animated underline indicator — hidden since
+   the gradient + shadow above already communicates the active tab. */
+div[data-testid="stTabs"] .react-aria-SelectionIndicator {
+    display: none !important;
 }
 
 /* ---------------- Cards ---------------- */
 .df-card {
     background: var(--card);
     border-radius: 18px;
-    padding: 28px;
+    padding: 32px;
     box-shadow: 0 2px 16px rgba(15,23,42,0.06);
     border: 1px solid rgba(15,23,42,0.04);
     transition: box-shadow 0.2s ease, transform 0.2s ease;
-    margin-bottom: 20px;
+    margin-bottom: 24px;
 }
 .df-card:hover {
     box-shadow: 0 10px 28px rgba(15,23,42,0.10);
     transform: translateY(-2px);
 }
 
+/* Streamlit's native bordered containers (from st.container(border=True)),
+   used throughout for the card layout. Verified against the real DOM:
+   Streamlit 1.59.1 does NOT emit "stVerticalBlockBorderWrapper" — the
+   bordered block is a plain [data-testid="stVerticalBlock"] that carries
+   data-test-scroll-behavior="normal" (present only on bordered containers,
+   absent on plain ones), which is what distinguishes it. */
+div[data-testid="stVerticalBlock"][data-test-scroll-behavior="normal"] {
+    border-radius: 18px !important;
+    box-shadow: 0 2px 16px rgba(15,23,42,0.07);
+    transition: box-shadow 0.25s ease, transform 0.25s ease;
+}
+div[data-testid="stVerticalBlock"][data-test-scroll-behavior="normal"]:hover {
+    box-shadow: 0 14px 32px rgba(15,23,42,0.14);
+    transform: translateY(-3px);
+}
+
+/* ---------------- Images ---------------- */
+[data-testid="stImage"] img {
+    border-radius: 14px;
+}
+[data-testid="stImage"] figcaption {
+    font-size: 0.85rem;
+    color: var(--slate-400);
+    letter-spacing: 0.01em;
+    margin-top: 8px;
+}
+
+/* ---------------- Muted caption text (works on dark sidebar too) ---------------- */
+.df-caption {
+    font-size: 0.82rem;
+    line-height: 1.5;
+    color: var(--slate-400);
+}
+section[data-testid="stSidebar"] .df-caption {
+    color: rgba(226,232,240,0.65) !important;
+}
+.df-caption i { margin-right: 2px; }
+
 /* ---------------- Upload dropzone styling ---------------- */
 [data-testid="stFileUploaderDropzone"] {
     background: var(--card) !important;
     border: 2px dashed #CBD5E1 !important;
     border-radius: 18px !important;
-    transition: border-color 0.2s ease, background 0.2s ease;
+    padding: 8px !important;
+    transition: border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease;
 }
 [data-testid="stFileUploaderDropzone"]:hover {
     border-color: var(--blue) !important;
-    background: #F1F5FE !important;
+    background: #EFF6FF !important;
+    box-shadow: 0 8px 22px rgba(59,130,246,0.18);
+}
+
+/* Hero badge gets a subtle interactive glow on hover, since it's the one
+   "chip"-like element inside an otherwise static banner. */
+.df-badge {
+    transition: box-shadow 0.25s ease, background 0.25s ease;
+}
+.df-badge:hover {
+    background: rgba(255,255,255,0.14);
+    box-shadow: 0 0 18px rgba(59,130,246,0.35);
+}
+
+/* ---------------- Grad-CAM ON/OFF status pill (Live Webcam tab) ---------------- */
+.df-toggle-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.8rem;
+    font-weight: 600;
+    padding: 8px 16px;
+    border-radius: 999px;
+    margin: 10px 0 4px 0;
+}
+.df-toggle-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+}
+.df-toggle-on {
+    background: rgba(34,197,94,0.10);
+    color: #16803C;
+    border: 1px solid rgba(34,197,94,0.35);
+}
+.df-toggle-on .df-toggle-dot {
+    background: var(--success);
+    box-shadow: 0 0 8px rgba(34,197,94,0.7);
+}
+.df-toggle-off {
+    background: rgba(148,163,184,0.12);
+    color: #475569;
+    border: 1px solid rgba(148,163,184,0.30);
+}
+.df-toggle-off .df-toggle-dot {
+    background: var(--slate-400);
 }
 
 /* ---------------- Prediction badge (signature element) ---------------- */
@@ -120,8 +252,9 @@ h1, h2, h3, .df-heading { font-family: 'Sora', sans-serif !important; color: var
     font-size: 1.3rem;
     padding: 14px 28px;
     border-radius: 999px;
-    margin-bottom: 18px;
+    margin-bottom: 22px;
 }
+.df-pred-badge i { font-size: 1.15rem; }
 .df-pred-real {
     background: rgba(34,197,94,0.10);
     color: #16803C;
@@ -143,15 +276,22 @@ h1, h2, h3, .df-heading { font-family: 'Sora', sans-serif !important; color: var
 /* ---------------- Metric grid ---------------- */
 .df-metric-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
-    gap: 14px;
-    margin-top: 4px;
+    grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+    gap: 16px;
+    margin-top: 6px;
 }
 .df-metric {
     background: var(--bg);
     border-radius: 14px;
     padding: 16px 18px;
     border: 1px solid rgba(15,23,42,0.05);
+    transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease;
+}
+.df-metric:hover {
+    transform: translateY(-5px);
+    box-shadow: 0 14px 28px rgba(15,23,42,0.14);
+    border-color: rgba(59,130,246,0.45);
+    background: #FFFFFF;
 }
 .df-metric-label {
     font-size: 0.72rem;
@@ -188,4 +328,25 @@ section[data-testid="stSidebar"] * {
 }
 section[data-testid="stSidebar"] hr {
     border-color: rgba(255,255,255,0.12) !important;
+}
+
+/* ---------------- Buttons (all native Streamlit buttons) ---------------- */
+/* NOTE: this cannot reach the streamlit-webrtc START/STOP button, since that
+   control is rendered inside the component's own iframe, isolated from the
+   page's CSS. Every other Streamlit button (st.button, st.download_button,
+   form submit buttons, etc.) is covered below. */
+.stButton > button,
+.stDownloadButton > button,
+.stFormSubmitButton > button {
+    height: 49px;
+    border-radius: 14px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.stButton > button:hover,
+.stDownloadButton > button:hover,
+.stFormSubmitButton > button:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 10px 22px rgba(15,23,42,0.18);
 }

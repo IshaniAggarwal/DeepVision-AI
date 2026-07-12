@@ -21,7 +21,7 @@ import av
 # ----------------------------------------------------------
 
 st.set_page_config(
-    page_title="DeepFake Detection System",
+    page_title="DeepVision AI",
     page_icon="🛡️",
     layout="wide"
 )
@@ -52,10 +52,19 @@ load_css("style.css")
 
 st.markdown("""
 <div class="df-hero">
-    <div class="df-badge">⚡ Powered by EfficientNet-B4 + Grad-CAM</div>
-    <h1>DeepFake Detection System</h1>
-    <p>Upload an image or go live on webcam — get an instant, explainable
-    verdict on whether a face has been synthetically manipulated.</p>
+    <div class="df-badge"><i class="bi bi-lightning-charge-fill"></i> Powered by EfficientNet-B4 + Grad-CAM</div>
+    <div class="df-brand">
+        <svg class="df-logo" width="40" height="40" viewBox="0 0 40 40" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M20 3L34 9V19C34 27.5 28 34.5 20 37C12 34.5 6 27.5 6 19V9L20 3Z"
+                  stroke="#F1F5F9" stroke-width="1.6" stroke-linejoin="round" fill="none"/>
+            <path d="M20 3L34 9V19C34 27.5 28 34.5 20 37V3Z" fill="#F1F5F9" fill-opacity="0.10"/>
+            <circle cx="20" cy="19" r="6.5" stroke="#F1F5F9" stroke-width="1.4" fill="none"/>
+            <circle cx="20" cy="19" r="1.6" fill="#F1F5F9"/>
+        </svg>
+        <h1>DeepVision AI</h1>
+    </div>
+    <p>AI-powered deepfake image analysis with real-time detection and
+    explainable Grad-CAM visualization.</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -301,14 +310,22 @@ def predict_image(image, threshold=0.5):
 # Sidebar
 # ----------------------------------------------------------
 
-st.sidebar.markdown("### ⚙️ Settings")
+st.sidebar.markdown(
+    '<h3>⚙️ Settings</h3>',
+    unsafe_allow_html=True
+)
 
 if model is not None:
     st.sidebar.markdown(
-        "🟢 **Model ready** &nbsp;·&nbsp; EfficientNet-B4"
+        '<p>🟢 <b>Model ready</b> &nbsp;·&nbsp; EfficientNet-B4</p>',
+        unsafe_allow_html=True
     )
 else:
-    st.sidebar.markdown("🔴 **Model not loaded**")
+    st.sidebar.markdown(
+        '<p><i class="bi bi-x-circle-fill" style="color:#EF4444;"></i> '
+        '<b>Model not loaded</b></p>',
+        unsafe_allow_html=True
+    )
 
 st.sidebar.markdown("---")
 
@@ -333,9 +350,11 @@ show_gradcam_live = st.sidebar.checkbox(
     )
 )
 
-st.sidebar.caption(
-    "🔄 Takes effect on next **START** — changing this while the webcam "
-    "is already running won't affect the current stream."
+st.sidebar.markdown(
+    '<p class="df-caption"><i class="bi bi-arrow-repeat"></i> '
+    'Takes effect on next <b>START</b> — changing this while the webcam '
+    'is already running won\'t affect the current stream.</p>',
+    unsafe_allow_html=True
 )
 
 with st.sidebar.expander("Advanced Options"):
@@ -353,9 +372,11 @@ with st.sidebar.expander("About"):
 
     st.write(f"**Model:** EfficientNet-B4")
     st.write(f"**Input Size:** {IMG_SIZE} × {IMG_SIZE}")
-    st.caption(
-        "⚠️ Research/demo tool. Predictions are not forensic-grade evidence "
-        "and should not be used as the sole basis for real-world decisions."
+    st.markdown(
+        '<p class="df-caption"><i class="bi bi-exclamation-triangle-fill"></i> '
+        'Research/demo tool. Predictions are not forensic-grade evidence '
+        'and should not be used as the sole basis for real-world decisions.</p>',
+        unsafe_allow_html=True
     )
 
 
@@ -364,7 +385,7 @@ with st.sidebar.expander("About"):
 # Navigation — pill tabs replace the old sidebar radio
 # ---------------------------------------------------------------------
 
-tab1, tab2 = st.tabs(["🖼️ Image Analysis", "🎥 Live Webcam"])
+tab1, tab2 = st.tabs(["Image Analysis", "Live Webcam"])
 
 
 # ---------------------------------------------------------------------
@@ -436,7 +457,11 @@ with tab1:
                 with st.container(border=True):
 
                     badge_class = "df-pred-real" if status == "REAL" else "df-pred-fake"
-                    icon = "✅" if status == "REAL" else "🚫"
+                    icon = (
+                        '<i class="bi bi-patch-check-fill"></i>'
+                        if status == "REAL"
+                        else '<i class="bi bi-exclamation-octagon-fill"></i>'
+                    )
 
                     st.markdown(
                         f"""
@@ -703,6 +728,14 @@ with tab2:
             st.markdown("#### Live Webcam Feed")
             st.caption("Click **START** below to enable your webcam.")
 
+            gradcam_pill_class = "df-toggle-on" if show_gradcam_live else "df-toggle-off"
+            gradcam_pill_text = "Grad-CAM: ON" if show_gradcam_live else "Grad-CAM: OFF"
+            st.markdown(
+                f'<div class="df-toggle-pill {gradcam_pill_class}">'
+                f'<span class="df-toggle-dot"></span>{gradcam_pill_text}</div>',
+                unsafe_allow_html=True
+            )
+
             if not show_gradcam_live:
                 st.caption(
                     "Grad-CAM is off for a smoother feed. Enable it in the sidebar "
@@ -753,77 +786,12 @@ with tab2:
                 if current_config != active_config:
 
                     st.warning(
-                        "⚠️ Sidebar settings changed since this stream started — "
+                        "Sidebar settings changed since this stream started — "
                         "the running feed is still using the old settings "
                         f"(Grad-CAM {'ON' if active_config['gradcam_enabled'] else 'OFF'}, "
                         f"threshold {active_config['threshold']:.2f}). "
                         "Click **STOP** then **START** below to apply your changes."
                     )
-
-        # ----------------------------------------------------------
-        # Metric cards below the webcam, mirroring the image-analysis
-        # layout. Reads the same _latest_result the on-video HUD uses
-        # (via the existing lock) — no new inference logic involved,
-        # this only *displays* what VideoProcessor already computed.
-        # ----------------------------------------------------------
-
-        with st.container(border=True):
-
-            live_result = None
-
-            if ctx.video_processor is not None:
-                with ctx.video_processor._lock:
-                    live_result = ctx.video_processor._latest_result
-
-            if live_result is None:
-                live_status = "..."
-                live_confidence = 0.0
-                live_inference_time = 0.0
-            else:
-                live_status = live_result["status"]
-                live_confidence = live_result["confidence"]
-                live_inference_time = live_result["inference_time"]
-
-            if live_status == "REAL":
-                badge_class = "df-pred-real"
-                icon = "✅"
-            elif live_status == "FAKE":
-                badge_class = "df-pred-fake"
-                icon = "🚫"
-            else:
-                badge_class = "df-pred-pending"
-                icon = "…"
-
-            gradcam_label = "🟢 Grad-CAM ON" if show_gradcam_live else "⚪ Grad-CAM OFF"
-
-            st.markdown(
-                f"""
-                <div class="df-pred-badge {badge_class}">{icon} {live_status}</div>
-                <div class="df-metric-grid">
-                    <div class="df-metric">
-                        <div class="df-metric-label">Confidence</div>
-                        <div class="df-metric-value">{live_confidence:.2f}%</div>
-                    </div>
-                    <div class="df-metric">
-                        <div class="df-metric-label">Inference Time</div>
-                        <div class="df-metric-value">{live_inference_time:.2f} ms</div>
-                    </div>
-                    <div class="df-metric">
-                        <div class="df-metric-label">Model</div>
-                        <div class="df-metric-value" style="font-size:0.95rem;">EfficientNet-B4</div>
-                    </div>
-                    <div class="df-metric">
-                        <div class="df-metric-label">Mode</div>
-                        <div class="df-metric-value" style="font-size:0.85rem;">{gradcam_label}</div>
-                    </div>
-                </div>
-                <p style="color:#94A3B8; font-size:0.78rem; margin-top:14px; margin-bottom:0;">
-                    These cards update whenever the app reruns — the overlay on the
-                    video itself is always the most current reading.
-                </p>
-                """,
-                unsafe_allow_html=True
-            )
 
     else:
         st.error("Model could not be loaded — check the sidebar for details.")
