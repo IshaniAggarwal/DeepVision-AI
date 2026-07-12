@@ -26,10 +26,38 @@ st.set_page_config(
     layout="wide"
 )
 
-st.title("🛡️ DeepFake Detection System")
-st.write(
-    "DeepFake detection using EfficientNet-B4 with Grad-CAM explainability."
-)
+# ----------------------------------------------------------
+# Design System — loaded from style.css (kept separate from
+# app logic; no backend code below is affected by this)
+# ----------------------------------------------------------
+
+def load_css(file_path: str):
+    """
+    Reads a local CSS file and injects it into the page.
+    Keeping styling in style.css instead of an inline string
+    makes it easy to tweak the design without touching app logic.
+    """
+    try:
+        with open(file_path) as f:
+            st.markdown(f"<style>{f.read()}</style>", unsafe_allow_html=True)
+    except FileNotFoundError:
+        st.warning(
+            f"'{file_path}' not found — the app will still work, "
+            "just without the custom styling. Make sure style.css "
+            "sits next to app.py."
+        )
+
+
+load_css("style.css")
+
+st.markdown("""
+<div class="df-hero">
+    <div class="df-badge">⚡ Powered by EfficientNet-B4 + Grad-CAM</div>
+    <h1>DeepFake Detection System</h1>
+    <p>Upload an image or go live on webcam — get an instant, explainable
+    verdict on whether a face has been synthetically manipulated.</p>
+</div>
+""", unsafe_allow_html=True)
 
 # ----------------------------------------------------------
 # Global Configuration
@@ -100,11 +128,6 @@ def build_gradcam_model(_model, layer_name=LAST_CONV_LAYER):
 model = load_detection_engine()
 
 gradcam_model = build_gradcam_model(model) if model is not None else None
-
-if model is not None:
-    st.sidebar.success("Model Loaded")
-else:
-    st.sidebar.error("Model Not Loaded")
 
 
 
@@ -278,15 +301,14 @@ def predict_image(image, threshold=0.5):
 # Sidebar
 # ----------------------------------------------------------
 
-st.sidebar.header("Control Center")
+st.sidebar.markdown("### ⚙️ Settings")
 
-mode = st.sidebar.radio(
-    "Select Input Mode",
-    (
-        "Static Image Upload",
-        "Live Webcam Feed"
+if model is not None:
+    st.sidebar.markdown(
+        "🟢 **Model ready** &nbsp;·&nbsp; EfficientNet-B4"
     )
-)
+else:
+    st.sidebar.markdown("🔴 **Model not loaded**")
 
 st.sidebar.markdown("---")
 
@@ -316,47 +338,50 @@ st.sidebar.caption(
     "is already running won't affect the current stream."
 )
 
-gradcam_every_n = st.sidebar.slider(
-    "Recompute Grad-CAM every N frames",
-    min_value=1,
-    max_value=15,
-    value=5,
-    help="Higher values trade heatmap freshness for smoother frame rate.",
-    disabled=not show_gradcam_live
-)
+with st.sidebar.expander("Advanced Options"):
 
-st.sidebar.markdown("---")
+    gradcam_every_n = st.slider(
+        "Recompute Grad-CAM every N frames",
+        min_value=1,
+        max_value=15,
+        value=5,
+        help="Higher values trade heatmap freshness for smoother frame rate.",
+        disabled=not show_gradcam_live
+    )
 
-st.sidebar.write(f"**Model:** EfficientNet-B4")
-st.sidebar.write(f"**Input Size:** {IMG_SIZE} × {IMG_SIZE}")
+with st.sidebar.expander("About"):
 
-if model is not None:
-    st.sidebar.success("Ready")
-else:
-    st.sidebar.error("Model Not Loaded")
+    st.write(f"**Model:** EfficientNet-B4")
+    st.write(f"**Input Size:** {IMG_SIZE} × {IMG_SIZE}")
+    st.caption(
+        "⚠️ Research/demo tool. Predictions are not forensic-grade evidence "
+        "and should not be used as the sole basis for real-world decisions."
+    )
 
-st.sidebar.markdown("---")
-st.sidebar.caption(
-    "⚠️ Research/demo tool. Predictions are not forensic-grade evidence "
-    "and should not be used as the sole basis for real-world decisions."
-)
 
+
+# ---------------------------------------------------------------------
+# Navigation — pill tabs replace the old sidebar radio
+# ---------------------------------------------------------------------
+
+tab1, tab2 = st.tabs(["🖼️ Image Analysis", "🎥 Live Webcam"])
 
 
 # ---------------------------------------------------------------------
 # PHASE 2.6: STATIC IMAGE FORENSIC ANALYSIS
 # ---------------------------------------------------------------------
 
-if model is not None:
+with tab1:
 
-    if mode == "Static Image Upload":
+    if model is not None:
 
-        st.subheader("🖼️ Static Image Analysis")
-
-        uploaded_img = st.file_uploader(
-            "Upload an image",
-            type=["jpg", "jpeg", "png"]
-        )
+        with st.container(border=True):
+            st.markdown("#### Upload an image")
+            uploaded_img = st.file_uploader(
+                "Upload an image",
+                type=["jpg", "jpeg", "png"],
+                label_visibility="collapsed"
+            )
 
         if uploaded_img:
 
@@ -399,52 +424,57 @@ if model is not None:
 
             with col1:
 
-                st.image(
-                    pil_img,
-                    caption="Uploaded Image",
-                    use_container_width=True
-                )
+                with st.container(border=True):
+                    st.image(
+                        pil_img,
+                        caption="Uploaded Image",
+                        use_container_width=True
+                    )
 
             with col2:
 
-                st.subheader("Prediction Results")
+                with st.container(border=True):
 
-                if status == "REAL":
+                    badge_class = "df-pred-real" if status == "REAL" else "df-pred-fake"
+                    icon = "✅" if status == "REAL" else "🚫"
 
-                    st.success(
-                        f"Prediction: {status}"
+                    st.markdown(
+                        f"""
+                        <div class="df-pred-badge {badge_class}">{icon} {status}</div>
+                        <div class="df-metric-grid">
+                            <div class="df-metric">
+                                <div class="df-metric-label">Confidence</div>
+                                <div class="df-metric-value">{confidence:.2f}%</div>
+                            </div>
+                            <div class="df-metric">
+                                <div class="df-metric-label">Inference Time</div>
+                                <div class="df-metric-value">{inference_time:.2f} ms</div>
+                            </div>
+                            <div class="df-metric">
+                                <div class="df-metric-label">Raw Score</div>
+                                <div class="df-metric-value">{prediction:.4f}</div>
+                            </div>
+                            <div class="df-metric">
+                                <div class="df-metric-label">Model</div>
+                                <div class="df-metric-value" style="font-size:0.95rem;">EfficientNet-B4</div>
+                            </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
                     )
-
-                else:
-
-                    st.error(
-                        f"Prediction: {status}"
-                    )
-
-                st.metric(
-                    "Confidence",
-                    f"{confidence:.2f}%"
-                )
-
-                st.metric(
-                    "Inference Time",
-                    f"{inference_time:.2f} ms"
-                )
-
-                st.metric(
-                    "Raw Prediction",
-                    f"{prediction:.4f}"
-                )
 
             if gradcam_overlay is not None:
 
-                st.subheader("Grad-CAM Visualization")
+                with st.container(border=True):
+                    st.markdown("#### Grad-CAM Visualization")
+                    st.image(
+                        gradcam_overlay,
+                        caption="Model Attention Heatmap",
+                        use_container_width=True
+                    )
 
-                st.image(
-                    gradcam_overlay,
-                    caption="Model Attention Heatmap",
-                    use_container_width=True
-                )
+    else:
+        st.error("Model could not be loaded — check the sidebar for details.")
 
 
 # =========================================================================
@@ -664,60 +694,151 @@ class VideoProcessor(VideoProcessorBase):
 # PHASE 3: LIVE WEBCAM USING WEBRTC
 # =========================================================================
 
-if model is not None and mode == "Live Webcam Feed":
+with tab2:
 
-    st.subheader("🎥 Real-Time Webcam Detection")
+    if model is not None:
 
-    st.write(
-        "Click START below to enable your webcam."
-    )
+        with st.container(border=True):
 
-    if not show_gradcam_live:
-        st.caption(
-            "Grad-CAM is off for a smoother feed. Enable it in the sidebar "
-            "if you want to see the attention heatmap (adds latency)."
-        )
+            st.markdown("#### Live Webcam Feed")
+            st.caption("Click **START** below to enable your webcam.")
 
-    def _video_processor_factory():
-        # Record exactly what config this processor was built with, so we
-        # can later tell if the sidebar has since changed underneath it.
-        st.session_state["active_webcam_config"] = {
-            "threshold": decision_threshold,
-            "gradcam_enabled": show_gradcam_live,
-            "gradcam_every_n": gradcam_every_n,
-        }
-        return VideoProcessor(
-            threshold=decision_threshold,
-            gradcam_enabled=show_gradcam_live,
-            gradcam_every_n=gradcam_every_n,
-        )
+            if not show_gradcam_live:
+                st.caption(
+                    "Grad-CAM is off for a smoother feed. Enable it in the sidebar "
+                    "if you want to see the attention heatmap (adds latency)."
+                )
 
-    ctx = webrtc_streamer(
-        key="deepfake-webcam",
-        video_processor_factory=_video_processor_factory,
-        media_stream_constraints={
-            "video": True,
-            "audio": False,
-        },
-        async_processing=True,
-    )
+            def _video_processor_factory():
+                # Record exactly what config this processor was built with, so we
+                # can later tell if the sidebar has since changed underneath it.
+                st.session_state["active_webcam_config"] = {
+                    "threshold": decision_threshold,
+                    "gradcam_enabled": show_gradcam_live,
+                    "gradcam_every_n": gradcam_every_n,
+                }
+                return VideoProcessor(
+                    threshold=decision_threshold,
+                    gradcam_enabled=show_gradcam_live,
+                    gradcam_every_n=gradcam_every_n,
+                )
 
-    active_config = st.session_state.get("active_webcam_config")
-
-    if ctx.state.playing and active_config is not None:
-
-        current_config = {
-            "threshold": decision_threshold,
-            "gradcam_enabled": show_gradcam_live,
-            "gradcam_every_n": gradcam_every_n,
-        }
-
-        if current_config != active_config:
-
-            st.warning(
-                "⚠️ Sidebar settings changed since this stream started — "
-                "the running feed is still using the old settings "
-                f"(Grad-CAM {'ON' if active_config['gradcam_enabled'] else 'OFF'}, "
-                f"threshold {active_config['threshold']:.2f}). "
-                "Click **STOP** then **START** below to apply your changes."
+            ctx = webrtc_streamer(
+                key="deepfake-webcam",
+                video_processor_factory=_video_processor_factory,
+                rtc_configuration={
+                    # Required once this app is running somewhere other than
+                    # localhost — without a STUN server, WebRTC can't establish
+                    # the connection through NAT and the webcam will just hang
+                    # on "loading" indefinitely after deployment.
+                    "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
+                },
+                media_stream_constraints={
+                    "video": True,
+                    "audio": False,
+                },
+                async_processing=True,
             )
+
+            active_config = st.session_state.get("active_webcam_config")
+
+            if ctx.state.playing and active_config is not None:
+
+                current_config = {
+                    "threshold": decision_threshold,
+                    "gradcam_enabled": show_gradcam_live,
+                    "gradcam_every_n": gradcam_every_n,
+                }
+
+                if current_config != active_config:
+
+                    st.warning(
+                        "⚠️ Sidebar settings changed since this stream started — "
+                        "the running feed is still using the old settings "
+                        f"(Grad-CAM {'ON' if active_config['gradcam_enabled'] else 'OFF'}, "
+                        f"threshold {active_config['threshold']:.2f}). "
+                        "Click **STOP** then **START** below to apply your changes."
+                    )
+
+        # ----------------------------------------------------------
+        # Metric cards below the webcam, mirroring the image-analysis
+        # layout. Reads the same _latest_result the on-video HUD uses
+        # (via the existing lock) — no new inference logic involved,
+        # this only *displays* what VideoProcessor already computed.
+        # ----------------------------------------------------------
+
+        with st.container(border=True):
+
+            live_result = None
+
+            if ctx.video_processor is not None:
+                with ctx.video_processor._lock:
+                    live_result = ctx.video_processor._latest_result
+
+            if live_result is None:
+                live_status = "..."
+                live_confidence = 0.0
+                live_inference_time = 0.0
+            else:
+                live_status = live_result["status"]
+                live_confidence = live_result["confidence"]
+                live_inference_time = live_result["inference_time"]
+
+            if live_status == "REAL":
+                badge_class = "df-pred-real"
+                icon = "✅"
+            elif live_status == "FAKE":
+                badge_class = "df-pred-fake"
+                icon = "🚫"
+            else:
+                badge_class = "df-pred-pending"
+                icon = "…"
+
+            gradcam_label = "🟢 Grad-CAM ON" if show_gradcam_live else "⚪ Grad-CAM OFF"
+
+            st.markdown(
+                f"""
+                <div class="df-pred-badge {badge_class}">{icon} {live_status}</div>
+                <div class="df-metric-grid">
+                    <div class="df-metric">
+                        <div class="df-metric-label">Confidence</div>
+                        <div class="df-metric-value">{live_confidence:.2f}%</div>
+                    </div>
+                    <div class="df-metric">
+                        <div class="df-metric-label">Inference Time</div>
+                        <div class="df-metric-value">{live_inference_time:.2f} ms</div>
+                    </div>
+                    <div class="df-metric">
+                        <div class="df-metric-label">Model</div>
+                        <div class="df-metric-value" style="font-size:0.95rem;">EfficientNet-B4</div>
+                    </div>
+                    <div class="df-metric">
+                        <div class="df-metric-label">Mode</div>
+                        <div class="df-metric-value" style="font-size:0.85rem;">{gradcam_label}</div>
+                    </div>
+                </div>
+                <p style="color:#94A3B8; font-size:0.78rem; margin-top:14px; margin-bottom:0;">
+                    These cards update whenever the app reruns — the overlay on the
+                    video itself is always the most current reading.
+                </p>
+                """,
+                unsafe_allow_html=True
+            )
+
+    else:
+        st.error("Model could not be loaded — check the sidebar for details.")
+
+
+# ---------------------------------------------------------------------
+# Footer
+# ---------------------------------------------------------------------
+
+st.markdown(
+    """
+    <div class="df-footer">
+        Powered by <b>TensorFlow</b> · <b>EfficientNet-B4</b> ·
+        <b>Grad-CAM</b> · <b>streamlit-webrtc</b>
+    </div>
+    """,
+    unsafe_allow_html=True
+)

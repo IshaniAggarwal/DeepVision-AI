@@ -1,0 +1,191 @@
+@import url('https://fonts.googleapis.com/css2?family=Sora:wght@600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap');
+
+:root {
+    --navy: #0F172A;
+    --slate: #1E293B;
+    --slate-400: #94A3B8;
+    --blue: #3B82F6;
+    --cyan: #06B6D4;
+    --success: #22C55E;
+    --danger: #EF4444;
+    --bg: #F8FAFC;
+    --card: #FFFFFF;
+}
+
+html, body, [class*="css"] { font-family: 'Inter', sans-serif; }
+.stApp { background: var(--bg); }
+
+h1, h2, h3, .df-heading { font-family: 'Sora', sans-serif !important; color: var(--navy); }
+
+/* Hide default Streamlit chrome padding at top for a full-bleed hero */
+.block-container { padding-top: 1.5rem; max-width: 1200px; }
+
+/* ---------------- Hero ---------------- */
+.df-hero {
+    background: radial-gradient(circle at 15% 20%, rgba(59,130,246,0.35), transparent 45%),
+                radial-gradient(circle at 85% 0%, rgba(6,182,212,0.30), transparent 40%),
+                linear-gradient(160deg, var(--navy) 0%, var(--slate) 100%);
+    border-radius: 24px;
+    padding: 56px 48px;
+    margin-bottom: 28px;
+    text-align: center;
+    box-shadow: 0 20px 50px rgba(15,23,42,0.25);
+}
+.df-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.18);
+    color: #E2E8F0;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 0.75rem;
+    letter-spacing: 0.03em;
+    padding: 6px 16px;
+    border-radius: 999px;
+    margin-bottom: 20px;
+    backdrop-filter: blur(6px);
+}
+.df-hero h1 {
+    color: #FFFFFF !important;
+    font-size: 2.6rem;
+    font-weight: 800 !important;
+    margin: 0 0 12px 0;
+    letter-spacing: -0.02em;
+}
+.df-hero p {
+    color: #CBD5E1;
+    font-size: 1.05rem;
+    max-width: 620px;
+    margin: 0 auto;
+}
+
+/* ---------------- Tabs as pill segmented control ---------------- */
+.stTabs [data-baseweb="tab-list"] {
+    gap: 6px;
+    background: var(--card);
+    padding: 6px;
+    border-radius: 14px;
+    box-shadow: 0 2px 10px rgba(15,23,42,0.06);
+    width: fit-content;
+    margin: 0 auto 24px auto;
+}
+.stTabs [data-baseweb="tab"] {
+    height: 42px;
+    border-radius: 10px;
+    padding: 0 22px;
+    font-family: 'Inter', sans-serif;
+    font-weight: 600;
+    color: var(--slate-400);
+}
+.stTabs [aria-selected="true"] {
+    background: linear-gradient(135deg, var(--blue), var(--cyan)) !important;
+    color: #FFFFFF !important;
+}
+
+/* ---------------- Cards ---------------- */
+.df-card {
+    background: var(--card);
+    border-radius: 18px;
+    padding: 28px;
+    box-shadow: 0 2px 16px rgba(15,23,42,0.06);
+    border: 1px solid rgba(15,23,42,0.04);
+    transition: box-shadow 0.2s ease, transform 0.2s ease;
+    margin-bottom: 20px;
+}
+.df-card:hover {
+    box-shadow: 0 10px 28px rgba(15,23,42,0.10);
+    transform: translateY(-2px);
+}
+
+/* ---------------- Upload dropzone styling ---------------- */
+[data-testid="stFileUploaderDropzone"] {
+    background: var(--card) !important;
+    border: 2px dashed #CBD5E1 !important;
+    border-radius: 18px !important;
+    transition: border-color 0.2s ease, background 0.2s ease;
+}
+[data-testid="stFileUploaderDropzone"]:hover {
+    border-color: var(--blue) !important;
+    background: #F1F5FE !important;
+}
+
+/* ---------------- Prediction badge (signature element) ---------------- */
+.df-pred-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-family: 'Sora', sans-serif;
+    font-weight: 700;
+    font-size: 1.3rem;
+    padding: 14px 28px;
+    border-radius: 999px;
+    margin-bottom: 18px;
+}
+.df-pred-real {
+    background: rgba(34,197,94,0.10);
+    color: #16803C;
+    border: 1px solid rgba(34,197,94,0.35);
+    box-shadow: 0 0 24px rgba(34,197,94,0.25);
+}
+.df-pred-fake {
+    background: rgba(239,68,68,0.10);
+    color: #B91C1C;
+    border: 1px solid rgba(239,68,68,0.35);
+    box-shadow: 0 0 24px rgba(239,68,68,0.25);
+}
+.df-pred-pending {
+    background: rgba(148,163,184,0.12);
+    color: #475569;
+    border: 1px solid rgba(148,163,184,0.30);
+}
+
+/* ---------------- Metric grid ---------------- */
+.df-metric-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 14px;
+    margin-top: 4px;
+}
+.df-metric {
+    background: var(--bg);
+    border-radius: 14px;
+    padding: 16px 18px;
+    border: 1px solid rgba(15,23,42,0.05);
+}
+.df-metric-label {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--slate-400);
+    font-weight: 600;
+    margin-bottom: 6px;
+}
+.df-metric-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--navy);
+}
+
+/* ---------------- Footer ---------------- */
+.df-footer {
+    text-align: center;
+    color: var(--slate-400);
+    font-size: 0.85rem;
+    padding: 28px 0 12px 0;
+    border-top: 1px solid rgba(15,23,42,0.06);
+    margin-top: 32px;
+}
+.df-footer b { color: var(--slate); }
+
+/* ---------------- Sidebar ---------------- */
+section[data-testid="stSidebar"] {
+    background: var(--navy);
+}
+section[data-testid="stSidebar"] * {
+    color: #E2E8F0 !important;
+}
+section[data-testid="stSidebar"] hr {
+    border-color: rgba(255,255,255,0.12) !important;
+}
