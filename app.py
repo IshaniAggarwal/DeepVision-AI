@@ -2,7 +2,9 @@
 # PHASE 2.1: IMPORTS & APPLICATION CONFIGURATION
 # =========================================================================
 
+import os
 import time
+import threading
 import cv2
 import numpy as np
 import streamlit as st
@@ -10,6 +12,9 @@ import tensorflow as tf
 
 from PIL import Image
 from tensorflow.keras.applications.efficientnet import preprocess_input
+
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase
+import av
 
 # ----------------------------------------------------------
 # Streamlit Configuration
@@ -49,6 +54,15 @@ def load_detection_engine():
     for the lifetime of the Streamlit session.
     """
 
+    if not os.path.exists(MODEL_PATH):
+
+        st.error(
+            f"Model file not found at '{MODEL_PATH}'. "
+            "Place the trained .keras file next to app.py, or update MODEL_PATH."
+        )
+
+        return None
+
     try:
 
         model = tf.keras.models.load_model(
@@ -66,7 +80,26 @@ def load_detection_engine():
         return None
 
 
+@st.cache_resource
+def build_gradcam_model(_model, layer_name=LAST_CONV_LAYER):
+    """
+    Builds the Grad-CAM sub-model (last conv layer + output) ONCE and
+    caches it, instead of rebuilding it on every single prediction.
+    Rebuilding this graph per-frame was the dominant cost in live webcam mode.
+    """
+
+    return tf.keras.models.Model(
+        inputs=_model.inputs,
+        outputs=[
+            _model.get_layer(layer_name).output,
+            _model.output
+        ]
+    )
+
+
 model = load_detection_engine()
+
+gradcam_model = build_gradcam_model(model) if model is not None else None
 
 if model is not None:
     st.sidebar.success("Model Loaded")
@@ -79,20 +112,16 @@ else:
 # PHASE 2.3: GRAD-CAM HEATMAP GENERATION
 # =========================================================================
 
-def process_gradcam(img_tensor, target_model, layer_name=LAST_CONV_LAYER):
+def process_gradcam(img_tensor, grad_model):
     """
     Generates a Grad-CAM heatmap highlighting the regions
     that most influenced the model's prediction.
-    """
 
-    # Build Grad-CAM model
-    grad_model = tf.keras.models.Model(
-        inputs=target_model.inputs,
-        outputs=[
-            target_model.get_layer(layer_name).output,
-            target_model.output
-        ]
-    )
+    `grad_model` is the pre-built (cached) sub-model exposing the last
+    conv layer's output alongside the final prediction — see
+    build_gradcam_model(). Rebuilding this per-call was expensive enough
+    to be the main bottleneck in live webcam mode, so it's now built once.
+    """
 
     # Record gradients
     with tf.GradientTape() as tape:
@@ -180,9 +209,17 @@ def blend_heatmap_overlay(original_image, heatmap, alpha=0.4):
 # PHASE 2.5: PREDICTION ENGINE & USER INTERFACE
 # =========================================================================
 
-def predict_image(image):
+def predict_image(image, threshold=0.5):
     """
     Preprocesses an image and performs DeepFake prediction.
+
+    Args:
+        image     : RGB numpy array
+        threshold : Decision threshold on the raw "fake" probability.
+                    Exposed as a sidebar control rather than hardcoded,
+                    since the right operating point depends on your
+                    validation ROC curve and how costly false negatives
+                    (missed fakes) are versus false positives.
 
     Returns:
         prediction     : Raw model probability
@@ -207,15 +244,16 @@ def predict_image(image):
     # Measure inference time
     start = time.time()
 
-    prediction = model.predict(
-        processed,
-        verbose=0
-    )[0][0]
+    # A direct call (model(x)) skips the tf.data pipeline, batching,
+    # and progress-tracking overhead that model.predict() sets up on every
+    # invocation — overhead that's negligible once but adds up fast when
+    # called 20-30 times a second from the webcam loop.
+    prediction = model(processed, training=False).numpy()[0][0]
 
     inference_time = (time.time() - start) * 1000
 
     # Classification
-    if prediction >= 0.5:
+    if prediction >= threshold:
 
         status = "FAKE"
 
@@ -252,6 +290,43 @@ mode = st.sidebar.radio(
 
 st.sidebar.markdown("---")
 
+decision_threshold = st.sidebar.slider(
+    "Decision Threshold",
+    min_value=0.05,
+    max_value=0.95,
+    value=0.50,
+    step=0.05,
+    help=(
+        "Raw prediction scores at or above this value are classified as FAKE. "
+        "Lower it to catch more fakes at the cost of more false alarms."
+    )
+)
+
+show_gradcam_live = st.sidebar.checkbox(
+    "Show Grad-CAM in webcam mode",
+    value=False,
+    help=(
+        "Grad-CAM adds noticeable per-frame compute cost. "
+        "Leave off for smoother live video, enable to inspect model attention."
+    )
+)
+
+st.sidebar.caption(
+    "🔄 Takes effect on next **START** — changing this while the webcam "
+    "is already running won't affect the current stream."
+)
+
+gradcam_every_n = st.sidebar.slider(
+    "Recompute Grad-CAM every N frames",
+    min_value=1,
+    max_value=15,
+    value=5,
+    help="Higher values trade heatmap freshness for smoother frame rate.",
+    disabled=not show_gradcam_live
+)
+
+st.sidebar.markdown("---")
+
 st.sidebar.write(f"**Model:** EfficientNet-B4")
 st.sidebar.write(f"**Input Size:** {IMG_SIZE} × {IMG_SIZE}")
 
@@ -259,6 +334,12 @@ if model is not None:
     st.sidebar.success("Ready")
 else:
     st.sidebar.error("Model Not Loaded")
+
+st.sidebar.markdown("---")
+st.sidebar.caption(
+    "⚠️ Research/demo tool. Predictions are not forensic-grade evidence "
+    "and should not be used as the sole basis for real-world decisions."
+)
 
 
 
@@ -290,14 +371,14 @@ if model is not None:
                 status,
                 processed_tensor,
                 inference_time
-            ) = predict_image(original_image)
+            ) = predict_image(original_image, threshold=decision_threshold)
 
             # Grad-CAM
             try:
 
                 heatmap = process_gradcam(
                     processed_tensor,
-                    model
+                    gradcam_model
                 )
 
                 gradcam_overlay = blend_heatmap_overlay(
@@ -305,9 +386,10 @@ if model is not None:
                     heatmap
                 )
 
-            except Exception:
+            except Exception as e:
 
                 gradcam_overlay = None
+                st.warning(f"Grad-CAM visualization unavailable: {e}")
 
             # --------------------------------------------------
             # Display Layout
@@ -365,9 +447,221 @@ if model is not None:
                 )
 
 
+# =========================================================================
+# PHASE 3.0: WEBRTC VIDEO PROCESSOR
+# =========================================================================
+
+class VideoProcessor(VideoProcessorBase):
+    """
+    recv() is called once per incoming video frame and whatever it returns
+    becomes the displayed frame. If recv() blocks on model inference (and
+    especially on Grad-CAM's extra backward pass), frames back up faster
+    than they're consumed and the video visibly stalls/stutters.
+
+    To keep video smooth, recv() never runs the model itself. It hands the
+    latest frame to a background worker thread and immediately draws the
+    most recently *finished* result onto the current frame. The camera feed
+    always stays live; the prediction overlay just lags slightly behind
+    (usually well under 100ms) instead of freezing the whole feed.
+    """
+
+    def __init__(self, threshold=0.5, gradcam_enabled=False, gradcam_every_n=5):
+
+        self.threshold = threshold
+        self.gradcam_enabled = gradcam_enabled
+        self.gradcam_every_n = max(1, gradcam_every_n)
+
+        self._lock = threading.Lock()
+        self._pending_frame = None   # newest frame waiting to be processed
+        self._latest_result = None   # most recent completed prediction/heatmap
+        self._frame_count = 0
+        self._stopped = False
+
+        self._worker = threading.Thread(target=self._inference_loop, daemon=True)
+        self._worker.start()
+
+    def _inference_loop(self):
+        """
+        Runs continuously on its own thread, always working on the newest
+        available frame (older queued frames are simply dropped — there's
+        no value in predicting on stale video).
+        """
+
+        while not self._stopped:
+
+            with self._lock:
+                frame = self._pending_frame
+                self._pending_frame = None
+
+            if frame is None:
+                time.sleep(0.005)
+                continue
+
+            try:
+
+                (
+                    _prediction,
+                    confidence,
+                    status,
+                    processed_tensor,
+                    inference_time
+                ) = predict_image(frame, threshold=self.threshold)
+
+                heatmap = None
+
+                if self.gradcam_enabled:
+
+                    self._frame_count += 1
+
+                    if self._frame_count % self.gradcam_every_n == 0:
+
+                        try:
+                            heatmap = process_gradcam(processed_tensor, gradcam_model)
+
+                        except Exception as e:
+                            print(f"[Grad-CAM] webcam frame failed: {e}")
+                            heatmap = None
+
+                with self._lock:
+
+                    # Reuse the previous heatmap on frames we didn't recompute,
+                    # so the overlay doesn't flicker on/off between recomputes.
+                    prev_heatmap = (
+                        self._latest_result["heatmap"]
+                        if self._latest_result else None
+                    )
+
+                    self._latest_result = {
+                        "status": status,
+                        "confidence": confidence,
+                        "inference_time": inference_time,
+                        "heatmap": heatmap if heatmap is not None else prev_heatmap,
+                    }
+
+            except Exception as e:
+                print(f"[Inference] webcam frame failed: {e}")
+
+    def stop(self):
+        self._stopped = True
+
+    def __del__(self):
+        # Best-effort: if the stream is stopped/restarted and this instance
+        # is garbage collected, make sure the worker thread doesn't spin
+        # forever in the background.
+        self._stopped = True
+
+    def recv(self, frame):
+
+        # Browser frame → OpenCV
+        image = frame.to_ndarray(format="bgr24")
+
+        # OpenCV BGR → RGB
+        rgb_image = cv2.cvtColor(
+            image,
+            cv2.COLOR_BGR2RGB
+        )
+
+        # Hand the newest frame to the background worker (non-blocking —
+        # this just replaces whatever frame was previously waiting).
+        with self._lock:
+            self._pending_frame = rgb_image
+            result = self._latest_result
+
+        display_frame = rgb_image.copy()
+
+        if result is None:
+            # Nothing computed yet (first ~1 frame after start)
+            status = "..."
+            confidence = 0.0
+            inference_time = 0.0
+        else:
+            status = result["status"]
+            confidence = result["confidence"]
+            inference_time = result["inference_time"]
+
+            if result["heatmap"] is not None:
+                try:
+                    display_frame = blend_heatmap_overlay(rgb_image, result["heatmap"])
+                except Exception:
+                    display_frame = rgb_image.copy()
+
+        # -----------------------------
+        # Prediction Label
+        # -----------------------------
+
+        if status == "REAL":
+            color = (0, 255, 0)
+        elif status == "FAKE":
+            color = (255, 70, 70)
+        else:
+            color = (180, 180, 180)
+
+        overlay = display_frame.copy()
+
+        # Compact background card
+        cv2.rectangle(
+            overlay,
+            (15, 15),
+            (205, 95),
+            (25, 25, 25),
+            -1
+        )
+
+        # Blend for transparency
+        cv2.addWeighted(
+            overlay,
+            0.35,
+            display_frame,
+            0.65,
+            0,
+            display_frame
+        )
+
+        # Prediction
+        cv2.putText(
+            display_frame,
+            status,
+            (28, 42),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.85,
+            color,
+            2,
+            cv2.LINE_AA
+        )
+
+        # Confidence
+        cv2.putText(
+            display_frame,
+            f"{confidence:.1f}%",
+            (28, 68),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.65,
+            (255,255,255),
+            2,
+            cv2.LINE_AA
+        )
+
+        # Inference
+        cv2.putText(
+            display_frame,
+            f"{inference_time:.0f} ms",
+            (120,68),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.55,
+            (180,180,180),
+            1,
+            cv2.LINE_AA
+        )
+
+        return av.VideoFrame.from_ndarray(
+            display_frame,
+            format="rgb24"
+        )
+
+
 
 # =========================================================================
-# PHASE 3: REAL-TIME WEBCAM DETECTION
+# PHASE 3: LIVE WEBCAM USING WEBRTC
 # =========================================================================
 
 if model is not None and mode == "Live Webcam Feed":
@@ -375,172 +669,55 @@ if model is not None and mode == "Live Webcam Feed":
     st.subheader("🎥 Real-Time Webcam Detection")
 
     st.write(
-        "Start the webcam to perform real-time DeepFake detection "
-        "with Grad-CAM visualization."
+        "Click START below to enable your webcam."
     )
 
-    # ----------------------------------------------------------
-    # Session State
-    # ----------------------------------------------------------
-
-    if "streaming" not in st.session_state:
-        st.session_state.streaming = False
-
-    # ----------------------------------------------------------
-    # Controls
-    # ----------------------------------------------------------
-
-    col1, col2 = st.columns(2)
-
-    with col1:
-
-        if st.button(
-            "▶ Start Webcam",
-            use_container_width=True
-        ):
-            st.session_state.streaming = True
-
-    with col2:
-
-        if st.button(
-            "⏹ Stop Webcam",
-            use_container_width=True
-        ):
-            st.session_state.streaming = False
-
-    # ----------------------------------------------------------
-    # Webcam Pipeline
-    # ----------------------------------------------------------
-
-    if st.session_state.streaming:
-
-        st.success("Webcam is running...")
-
-        frame_placeholder = st.empty()
-
-        metrics_placeholder = st.empty()
-
-        camera = cv2.VideoCapture(0)
-
-        if not camera.isOpened():
-
-            st.error("Unable to access the webcam.")
-
-        else:
-
-            while st.session_state.streaming:
-
-                success, frame = camera.read()
-
-                if not success:
-
-                    st.error("Failed to capture frame.")
-
-                    break
-
-                # ------------------------------------------
-                # Convert Frame
-                # ------------------------------------------
-
-                rgb_frame = cv2.cvtColor(
-                    frame,
-                    cv2.COLOR_BGR2RGB
-                )
-
-                # ------------------------------------------
-                # Prediction
-                # ------------------------------------------
-
-                (
-                    prediction,
-                    confidence,
-                    status,
-                    processed_tensor,
-                    inference_time
-                ) = predict_image(rgb_frame)
-
-                # ------------------------------------------
-                # Grad-CAM
-                # ------------------------------------------
-
-                try:
-
-                    heatmap = process_gradcam(
-                        processed_tensor,
-                        model
-                    )
-
-                    display_frame = blend_heatmap_overlay(
-                        rgb_frame,
-                        heatmap
-                    )
-
-                except Exception:
-
-                    display_frame = rgb_frame.copy()
-
-                # ------------------------------------------
-                # Prediction Label
-                # ------------------------------------------
-
-                color = (
-                    (0, 255, 0)
-                    if status == "REAL"
-                    else
-                    (255, 0, 0)
-                )
-
-                cv2.putText(
-                    display_frame,
-                    f"{status} ({confidence:.1f}%)",
-                    (20, 40),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    1,
-                    color,
-                    2,
-                    cv2.LINE_AA
-                )
-
-                # ------------------------------------------
-                # Show Webcam
-                # ------------------------------------------
-
-                frame_placeholder.image(
-                    display_frame,
-                    channels="RGB",
-                    use_container_width=True
-                )
-
-                # ------------------------------------------
-                # Live Metrics
-                # ------------------------------------------
-
-                metrics_placeholder.markdown(
-                    f"""
-                    ### Live Detection
-
-                    **Prediction:** {status}
-
-                    **Confidence:** {confidence:.2f}%
-
-                    **Inference Time:** {inference_time:.2f} ms
-
-                    **Raw Prediction:** {prediction:.4f}
-                    """
-                )
-
-            # ------------------------------------------
-            # Cleanup
-            # ------------------------------------------
-
-            camera.release()
-
-            st.session_state.streaming = False
-
-            st.success("Webcam stopped successfully.")
-
-    else:
-
-        st.info(
-            "Click 'Start Webcam' to begin live detection."
+    if not show_gradcam_live:
+        st.caption(
+            "Grad-CAM is off for a smoother feed. Enable it in the sidebar "
+            "if you want to see the attention heatmap (adds latency)."
         )
+
+    def _video_processor_factory():
+        # Record exactly what config this processor was built with, so we
+        # can later tell if the sidebar has since changed underneath it.
+        st.session_state["active_webcam_config"] = {
+            "threshold": decision_threshold,
+            "gradcam_enabled": show_gradcam_live,
+            "gradcam_every_n": gradcam_every_n,
+        }
+        return VideoProcessor(
+            threshold=decision_threshold,
+            gradcam_enabled=show_gradcam_live,
+            gradcam_every_n=gradcam_every_n,
+        )
+
+    ctx = webrtc_streamer(
+        key="deepfake-webcam",
+        video_processor_factory=_video_processor_factory,
+        media_stream_constraints={
+            "video": True,
+            "audio": False,
+        },
+        async_processing=True,
+    )
+
+    active_config = st.session_state.get("active_webcam_config")
+
+    if ctx.state.playing and active_config is not None:
+
+        current_config = {
+            "threshold": decision_threshold,
+            "gradcam_enabled": show_gradcam_live,
+            "gradcam_every_n": gradcam_every_n,
+        }
+
+        if current_config != active_config:
+
+            st.warning(
+                "⚠️ Sidebar settings changed since this stream started — "
+                "the running feed is still using the old settings "
+                f"(Grad-CAM {'ON' if active_config['gradcam_enabled'] else 'OFF'}, "
+                f"threshold {active_config['threshold']:.2f}). "
+                "Click **STOP** then **START** below to apply your changes."
+            )
