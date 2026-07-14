@@ -5,6 +5,7 @@
 import os
 import time
 import threading
+import gc
 import cv2
 import numpy as np
 import streamlit as st
@@ -449,7 +450,7 @@ with tab1:
                     st.image(
                         pil_img,
                         caption="Uploaded Image",
-                        use_container_width=True
+                        width="stretch"
                     )
 
             with col2:
@@ -495,7 +496,7 @@ with tab1:
                     st.image(
                         gradcam_overlay,
                         caption="Model Attention Heatmap",
-                        use_container_width=True
+                        width="stretch"
                     )
 
     else:
@@ -530,6 +531,7 @@ class VideoProcessor(VideoProcessorBase):
         self._pending_frame = None   # newest frame waiting to be processed
         self._latest_result = None   # most recent completed prediction/heatmap
         self._frame_count = 0
+        self._gc_counter = 0
         self._stopped = False
 
         self._worker = threading.Thread(target=self._inference_loop, daemon=True)
@@ -592,6 +594,17 @@ class VideoProcessor(VideoProcessorBase):
                         "inference_time": inference_time,
                         "heatmap": heatmap if heatmap is not None else prev_heatmap,
                     }
+
+                # Drop references to this frame's large arrays/tensors as
+                # soon as we're done with them, and periodically nudge the
+                # garbage collector. Cheap insurance against gradual memory
+                # growth over a long-running stream — on top of, not
+                # instead of, capping capture resolution above (the
+                # startup-time fix for the resource-limit crash itself).
+                del frame, processed_tensor, heatmap
+                self._gc_counter += 1
+                if self._gc_counter % 60 == 0:
+                    gc.collect()
 
             except Exception as e:
                 print(f"[Inference] webcam frame failed: {e}")
@@ -767,7 +780,17 @@ with tab2:
                     "iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]
                 },
                 media_stream_constraints={
-                    "video": True,
+                    # Capping resolution here (rather than letting the browser
+                    # pick its default/max, often 720p+) matters because the
+                    # video pipeline has to decode/buffer every frame at
+                    # whatever size the browser sends, even though
+                    # predict_image() immediately downsizes to 380x380
+                    # anyway. On a memory-constrained host, that's pure
+                    # overhead with zero benefit to prediction quality.
+                    "video": {
+                        "width": {"ideal": 640, "max": 640},
+                        "height": {"ideal": 480, "max": 480},
+                    },
                     "audio": False,
                 },
                 async_processing=True,
