@@ -80,11 +80,11 @@ DeepVision-AI/
 ├── style.css               # Custom UI styling
 ├── requirements.txt
 ├── README.md
-└── screenshots/
-    ├── home.png
-    ├── image-analysis.png
-    ├── gradcam.png
-    └── webcam.png
+└── images/
+    ├── Grad-Visualization.png
+    ├── Image_analysis.png
+    ├── homepage.png
+    └── live_webcam.png
 ```
 
 ---
@@ -164,25 +164,25 @@ Instead of simply displaying a classification result, the application generates 
 
 ### Home Page
 
-![Home Page](screenshots/home.png)
+![Home Page](images/homepage.png)
 
 ---
 
 ### Image Analysis
 
-![Image Analysis](screenshots/image-analysis.png)
+![Image Analysis](images/Image_analysis.png)
 
 ---
 
 ### Grad-CAM Visualization
 
-![Grad-CAM](screenshots/gradcam.png)
+![Grad-CAM](images/Grad-CAM_visualization.png)
 
 ---
 
 ### Live Webcam Detection
 
-![Live Webcam](screenshots/webcam.png)
+![Live Webcam](images/live_webcam.png)
 
 ---
 
@@ -229,4 +229,4 @@ Ishani Aggarwal
 - GitHub: [IshaniAggarwal](https://github.com/IshaniAggarwal)
 - LinkedIn: [Ishani Aggarwal](https://www.linkedin.com/in/ishani-aggarwal-643259320/)
 
-Any feedback or suggestions are always appreciated.
+Feedback and suggestions are always appreciated.
