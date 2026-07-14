@@ -6,6 +6,7 @@ import os
 import time
 import threading
 import gc
+import resource
 import cv2
 import numpy as np
 import streamlit as st
@@ -80,6 +81,39 @@ MODEL_PATH = "final_model.keras"
 LAST_CONV_LAYER = "top_activation"
 
 
+# ----------------------------------------------------------
+# Memory instrumentation (diagnostic only — no effect on
+# inference, threading, or WebRTC logic below)
+# ----------------------------------------------------------
+
+def log_memory(tag: str):
+    """
+    Prints current + peak resident memory (RSS) to stdout, tagged so it's
+    easy to grep for in Streamlit Cloud's logs. Uses only the stdlib
+    (resource + /proc), matching Streamlit Community Cloud's Linux runtime
+    with zero new dependencies.
+
+    - "current" (from /proc/self/status) can go up or down over time.
+    - "peak" (from resource.getrusage) is the high-water mark since the
+      process started — it never decreases, so watching it climb across
+      separate operations (image analysis, then webcam, etc.) is exactly
+      how we tell whether memory is being permanently retained rather
+      than released back down between uses.
+    """
+    try:
+        with open("/proc/self/status") as f:
+            status = f.read()
+        current_kb = int(
+            [line for line in status.splitlines() if line.startswith("VmRSS:")][0].split()[1]
+        )
+        current_mb = current_kb / 1024
+    except Exception:
+        current_mb = float("nan")
+
+    peak_mb = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024
+    print(f"[MEMORY] {tag}: current={current_mb:.1f}MB peak={peak_mb:.1f}MB", flush=True)
+
+
 
 # =========================================================================
 # PHASE 2.2: LOAD TRAINED MODEL
@@ -136,8 +170,10 @@ def build_gradcam_model(_model, layer_name=LAST_CONV_LAYER):
 
 
 model = load_detection_engine()
+log_memory("after model load")
 
 gradcam_model = build_gradcam_model(model) if model is not None else None
+log_memory("after gradcam_model build")
 
 
 
@@ -419,6 +455,7 @@ with tab1:
                 processed_tensor,
                 inference_time
             ) = predict_image(original_image, threshold=decision_threshold)
+            log_memory("after image prediction (forward pass only)")
 
             # Grad-CAM
             heatmap = None
@@ -428,6 +465,7 @@ with tab1:
                     processed_tensor,
                     gradcam_model
                 )
+                log_memory("after image Grad-CAM (backward pass)")
 
                 gradcam_overlay = blend_heatmap_overlay(
                     original_image,
@@ -448,6 +486,7 @@ with tab1:
                 # session started right after).
                 del heatmap, processed_tensor
                 gc.collect()
+                log_memory("after image Grad-CAM cleanup")
 
             # --------------------------------------------------
             # Display Layout
@@ -547,6 +586,7 @@ class VideoProcessor(VideoProcessorBase):
 
         self._worker = threading.Thread(target=self._inference_loop, daemon=True)
         self._worker.start()
+        log_memory("webcam stream started")
 
     def _inference_loop(self):
         """
@@ -616,6 +656,7 @@ class VideoProcessor(VideoProcessorBase):
                 self._gc_counter += 1
                 if self._gc_counter % 60 == 0:
                     gc.collect()
+                    log_memory(f"webcam loop, frame #{self._gc_counter}")
 
             except Exception as e:
                 print(f"[Inference] webcam frame failed: {e}")
