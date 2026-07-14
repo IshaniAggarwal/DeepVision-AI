@@ -808,6 +808,26 @@ with tab2:
                 )
 
             def _video_processor_factory():
+                # Stop and join the previous session's background inference
+                # thread BEFORE creating a new one. Without this, __del__ is
+                # the only thing that could ever set _stopped=True, but the
+                # Thread object holds a bound method (self._inference_loop)
+                # that references self right back -- a reference cycle the
+                # regular refcounter can't collect, and a still-running
+                # thread keeps itself (and self) alive regardless of GC.
+                # Left alone, every STOP/START cycle leaks another live
+                # inference thread, each pinning its own Grad-CAM workspace
+                # memory that's never released -- this was the actual cause
+                # of the resource-limit crash (memory climbing ~700-900MB
+                # per webcam restart until the container got OOM-killed).
+                old_processor = st.session_state.get("_active_video_processor")
+                if old_processor is not None:
+                    old_processor.stop()
+                    old_processor._worker.join(timeout=2.0)
+                    del old_processor
+                    gc.collect()
+                    log_memory("previous webcam thread stopped")
+
                 # Record exactly what config this processor was built with, so we
                 # can later tell if the sidebar has since changed underneath it.
                 st.session_state["active_webcam_config"] = {
@@ -815,11 +835,13 @@ with tab2:
                     "gradcam_enabled": show_gradcam_live,
                     "gradcam_every_n": gradcam_every_n,
                 }
-                return VideoProcessor(
+                new_processor = VideoProcessor(
                     threshold=decision_threshold,
                     gradcam_enabled=show_gradcam_live,
                     gradcam_every_n=gradcam_every_n,
                 )
+                st.session_state["_active_video_processor"] = new_processor
+                return new_processor
 
             ctx = webrtc_streamer(
                 key="deepfake-webcam",
