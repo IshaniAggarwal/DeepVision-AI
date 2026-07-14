@@ -421,6 +421,7 @@ with tab1:
             ) = predict_image(original_image, threshold=decision_threshold)
 
             # Grad-CAM
+            heatmap = None
             try:
 
                 heatmap = process_gradcam(
@@ -437,6 +438,16 @@ with tab1:
 
                 gradcam_overlay = None
                 st.warning(f"Grad-CAM visualization unavailable: {e}")
+
+            finally:
+                # Grad-CAM's backward pass (GradientTape) retains more
+                # intermediate state than a plain forward pass — dropping
+                # references promptly and nudging the collector here helps
+                # keep this from leaving memory elevated for whatever runs
+                # next in this same long-lived process (e.g. a webcam
+                # session started right after).
+                del heatmap, processed_tensor
+                gc.collect()
 
             # --------------------------------------------------
             # Display Layout
