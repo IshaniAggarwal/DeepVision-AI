@@ -3,6 +3,18 @@
 # =========================================================================
 
 import os
+
+# Must be set before TensorFlow/numpy/cv2 are imported and before any
+# other thread does a large allocation. glibc gives each thread that
+# allocates enough memory its own private malloc arena; freed memory
+# inside one arena is never shared with another arena or returned to
+# the OS. Since this app spins up a new background thread per webcam
+# session, that meant every restart claimed a fresh arena that never
+# shrank back down, even after the thread-leak fix stopped the threads
+# themselves from piling up. Capping to 1 arena forces all threads to
+# share the same pool so freed memory actually becomes reusable.
+os.environ.setdefault("MALLOC_ARENA_MAX", "1")
+
 import time
 import threading
 import gc
@@ -175,6 +187,21 @@ log_memory("after model load")
 gradcam_model = build_gradcam_model(model) if model is not None else None
 log_memory("after gradcam_model build")
 
+# Serializes every forward pass (predict_image) and backward pass
+# (process_gradcam) across ALL threads -- the main Streamlit script
+# thread and every webcam VideoProcessor's background thread alike.
+#
+# Without this, an image-tab prediction and a webcam frame's Grad-CAM
+# could run at the exact same moment on different threads. TensorFlow's
+# allocator can reuse a workspace buffer once an op is done with it, but
+# it can't hand the SAME buffer to two ops executing simultaneously, so
+# overlapping calls briefly need two full sets of forward+backward
+# workspace at once -- that's what was producing the highest memory
+# spikes (2.6-2.9GB) instead of the ~1.5-1.9GB seen when only one path
+# runs at a time. The lock trades a little latency on genuine overlap
+# for a hard cap on worst-case memory.
+_inference_lock = threading.Lock()
+
 
 
 # =========================================================================
@@ -192,41 +219,46 @@ def process_gradcam(img_tensor, grad_model):
     to be the main bottleneck in live webcam mode, so it's now built once.
     """
 
-    # Record gradients
-    with tf.GradientTape() as tape:
+    # Everything below allocates TF gradient workspace -- hold the shared
+    # lock for the whole block so no other thread's forward or backward
+    # pass can run concurrently and force a second workspace allocation.
+    with _inference_lock:
 
-        conv_outputs, predictions = grad_model(img_tensor)
+        # Record gradients
+        with tf.GradientTape() as tape:
 
-        # Binary classifier score
-        loss = predictions[:, 0]
+            conv_outputs, predictions = grad_model(img_tensor)
 
-    # Compute gradients
-    gradients = tape.gradient(loss, conv_outputs)
+            # Binary classifier score
+            loss = predictions[:, 0]
 
-    # Global Average Pooling over feature maps
-    pooled_gradients = tf.reduce_mean(
-        gradients,
-        axis=(0, 1, 2)
-    )
+        # Compute gradients
+        gradients = tape.gradient(loss, conv_outputs)
 
-    conv_outputs = conv_outputs[0]
+        # Global Average Pooling over feature maps
+        pooled_gradients = tf.reduce_mean(
+            gradients,
+            axis=(0, 1, 2)
+        )
 
-    # Weighted feature map combination
-    heatmap = tf.reduce_sum(
-        conv_outputs * pooled_gradients,
-        axis=-1
-    )
+        conv_outputs = conv_outputs[0]
 
-    # Apply ReLU
-    heatmap = tf.maximum(heatmap, 0)
+        # Weighted feature map combination
+        heatmap = tf.reduce_sum(
+            conv_outputs * pooled_gradients,
+            axis=-1
+        )
 
-    # Normalize heatmap
-    max_value = tf.reduce_max(heatmap)
+        # Apply ReLU
+        heatmap = tf.maximum(heatmap, 0)
 
-    if max_value > 0:
-        heatmap /= max_value
+        # Normalize heatmap
+        max_value = tf.reduce_max(heatmap)
 
-    return heatmap.numpy()
+        if max_value > 0:
+            heatmap /= max_value
+
+        return heatmap.numpy()
 
 
 
@@ -317,7 +349,12 @@ def predict_image(image, threshold=0.5):
     # and progress-tracking overhead that model.predict() sets up on every
     # invocation — overhead that's negligible once but adds up fast when
     # called 20-30 times a second from the webcam loop.
-    prediction = model(processed, training=False).numpy()[0][0]
+    #
+    # Held under the same lock process_gradcam() uses, so a forward pass
+    # here can never overlap with another thread's forward or backward
+    # pass and force a duplicate TF workspace allocation.
+    with _inference_lock:
+        prediction = model(processed, training=False).numpy()[0][0]
 
     inference_time = (time.time() - start) * 1000
 
